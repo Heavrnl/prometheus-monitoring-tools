@@ -19,17 +19,17 @@ def validate_ip(ip, allow_ipv6=False):
     """验证IP地址格式是否正确"""
     # IPv4验证
     ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}(:\d+)?$'
-    
+
     # IPv6验证
     ipv6_pattern = r'^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:|^:((:[0-9a-fA-F]{1,4}){1,7}|:)$|^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$'
-    
+
     if re.match(ipv4_pattern, ip):
         # 验证IPv4地址各部分的数值范围
         if ':' in ip:
             ip_part = ip.split(':')[0]
         else:
             ip_part = ip
-        
+
         parts = ip_part.split('.')
         for part in parts:
             if not 0 <= int(part) <= 255:
@@ -44,7 +44,7 @@ def load_config():
     if not os.path.exists(CONFIG_FILE):
         print(f"错误: 配置文件 {CONFIG_FILE} 不存在!")
         sys.exit(1)
-    
+
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
@@ -58,7 +58,7 @@ def load_my_vps():
     if not os.path.exists(MY_VPS_FILE):
         print(f"警告: 文件 {MY_VPS_FILE} 不存在，将创建新文件。")
         return []
-    
+
     try:
         with open(MY_VPS_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -77,7 +77,7 @@ def load_my_vps_v6():
     if not os.path.exists(MY_VPS_V6_FILE):
         print(f"警告: 文件 {MY_VPS_V6_FILE} 不存在，将创建新文件。")
         return []
-    
+
     try:
         with open(MY_VPS_V6_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -98,7 +98,7 @@ def save_config(config):
     try:
         shutil.copy2(CONFIG_FILE, backup_file)
         print(f"已创建配置文件备份: {backup_file}")
-        
+
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         return True
@@ -116,7 +116,7 @@ def save_my_vps(vps_config):
             print(f"已创建my_vps文件备份: {backup_file}")
         except Exception as e:
             print(f"创建my_vps备份失败: {str(e)}")
-    
+
     try:
         with open(MY_VPS_FILE, 'w', encoding='utf-8') as f:
             yaml.dump(vps_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -135,7 +135,7 @@ def save_my_vps_v6(vps_config):
             print(f"已创建my_vps_v6文件备份: {backup_file}")
         except Exception as e:
             print(f"创建my_vps_v6备份失败: {str(e)}")
-    
+
     try:
         with open(MY_VPS_V6_FILE, 'w', encoding='utf-8') as f:
             yaml.dump(vps_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -172,7 +172,7 @@ def remove_target(config, target_ip):
     """从配置中删除特定IP的目标"""
     changes_made = False
     instance_name = None
-    
+
     # 如果没有提供端口，添加默认端口9100进行搜索
     base_ip = target_ip
     if ':' not in target_ip:
@@ -180,13 +180,13 @@ def remove_target(config, target_ip):
     else:
         target_ip_with_port = target_ip
         base_ip = target_ip.split(':')[0]
-    
+
     # 1. 在prometheus job中移除target
     for job in config.get('scrape_configs', []):
         if job.get('job_name') == 'prometheus':
             static_configs = job.get('static_configs', [])
             new_static_configs = []
-            
+
             for static_config in static_configs:
                 targets = static_config.get('targets', [])
                 # 检查targets中是否包含目标IP
@@ -196,24 +196,24 @@ def remove_target(config, target_ip):
                     changes_made = True
                     continue
                 new_static_configs.append(static_config)
-            
+
             if len(new_static_configs) != len(static_configs):
                 job['static_configs'] = new_static_configs
-    
+
     # 2. 移除包含目标IP作为replacement的job (排除cadvisor)
     new_scrape_configs = []
     for job in config.get('scrape_configs', []):
         job_name = job.get('job_name', '')
-        
+
         # 保留prometheus和cadvisor job
         if job_name in ['prometheus', 'cadvisor']:
             new_scrape_configs.append(job)
             continue
-        
+
         # 检查其他job的replacement字段
         relabel_configs = job.get('relabel_configs', [])
         should_remove = False
-        
+
         for relabel in relabel_configs:
             if relabel.get('target_label') == '__address__' and base_ip in relabel.get('replacement', ''):
                 should_remove = True
@@ -222,13 +222,13 @@ def remove_target(config, target_ip):
                 if not instance_name:
                     instance_name = job_name
                 break
-        
+
         if not should_remove:
             new_scrape_configs.append(job)
-    
+
     if len(new_scrape_configs) != len(config.get('scrape_configs', [])):
         config['scrape_configs'] = new_scrape_configs
-    
+
     # 3. 从my_vps文件中删除条目
     vps_config = load_my_vps()
     if vps_config:
@@ -239,11 +239,11 @@ def remove_target(config, target_ip):
                 changes_made = True
                 continue
             new_vps_config.append(item)
-        
+
         if len(new_vps_config) != len(vps_config):
             save_my_vps(new_vps_config)
             print(f"已从my_vps.yml中删除IP为 {base_ip} 的目标。")
-    
+
     # 4. 从my_vps_v6文件中删除可能的IPv6条目
     if instance_name:
         vps_v6_config = load_my_vps_v6()
@@ -256,16 +256,16 @@ def remove_target(config, target_ip):
                     changes_made = True
                     continue
                 new_vps_v6_config.append(item)
-            
+
             if len(new_vps_v6_config) != len(vps_v6_config):
                 save_my_vps_v6(new_vps_v6_config)
                 print(f"已从my_vps_v6.yml中删除实例名为 {formatted_name} 的目标。")
-    
+
     return changes_made
 
-def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, ipv6_address=None):
+def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, ipv6_address=None, basic_auth_username=None, basic_auth_password=None):
     """添加监控目标到配置中
-    
+
     参数:
         config: Prometheus配置字典
         target_ip: 目标IP地址
@@ -274,29 +274,31 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
         city: 城市名称
         filter_ipv6: 是否过滤IPv6，True表示添加IPv6过滤规则
         ipv6_address: IPv6地址，如果提供则添加到my_vps_v6.yml
+        basic_auth_username: Basic认证用户名
+        basic_auth_password: Basic认证密码
     """
     changes_made = False
-    
+
     # 如果没有提供端口，添加默认端口9100
     if ':' not in target_ip:
         target_ip_with_port = f"{target_ip}:9100"
     else:
         target_ip_with_port = target_ip
         target_ip = target_ip.split(':')[0]
-    
+
     # 1. 添加到prometheus job的static_configs中
     for job in config.get('scrape_configs', []):
         if job.get('job_name') == 'prometheus':
             if 'static_configs' not in job:
                 job['static_configs'] = []
-            
+
             # 检查是否已存在相同的目标
             exists = False
             for static_config in job.get('static_configs', []):
                 if any(target_ip_with_port in target for target in static_config.get('targets', [])):
                     exists = True
                     break
-            
+
             if not exists:
                 # 添加新的监控目标
                 job['static_configs'].append({
@@ -307,7 +309,7 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
                 })
                 changes_made = True
                 break
-    
+
     # 2. 添加新的job用于blackbox监控
     port = '9115'  # 默认blackbox_exporter端口
     new_job = {
@@ -334,7 +336,14 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
             }
         ]
     }
-    
+
+    # 如果提供了Basic认证信息，添加到job配置中
+    if basic_auth_username and basic_auth_password:
+        new_job['basic_auth'] = {
+            'username': basic_auth_username,
+            'password': basic_auth_password
+        }
+
     # 如果需要过滤IPv6，添加过滤配置
     if filter_ipv6:
         new_job['relabel_configs'].append({
@@ -342,29 +351,29 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
             'regex': 'IPv6',
             'action': 'drop'
         })
-    
+
     # 检查是否已存在相同名称的job
     exists = False
     for job in config.get('scrape_configs', []):
         if job.get('job_name') == instance_name:
             exists = True
             break
-    
+
     if not exists:
         config['scrape_configs'].append(new_job)
         changes_made = True
-    
+
     # 3. 添加到my_vps.yml
     vps_config = load_my_vps()
     formatted_name = format_instance_to_name(instance_name)
-    
+
     # 检查是否已存在
     exists = False
     for item in vps_config:
         if item.get('targets') and target_ip in item.get('targets')[0]:
             exists = True
             break
-    
+
     if not exists:
         vps_entry = {
             'targets': [target_ip],
@@ -378,18 +387,18 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
         vps_config.append(vps_entry)
         save_my_vps(vps_config)
         print(f"已将IPv4目标添加到my_vps.yml")
-    
+
     # 4. 添加到my_vps_v6.yml
     if ipv6_address:
         vps_v6_config = load_my_vps_v6()
-        
+
         # 检查是否已存在
         exists = False
         for item in vps_v6_config:
             if item.get('labels', {}).get('name') == formatted_name:
                 exists = True
                 break
-        
+
         if not exists:
             vps_v6_entry = {
                 'targets': [ipv6_address],
@@ -403,7 +412,7 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
             vps_v6_config.append(vps_v6_entry)
             save_my_vps_v6(vps_v6_config)
             print(f"已将IPv6目标添加到my_vps_v6.yml")
-    
+
     return changes_made
 
 def main():
@@ -414,39 +423,39 @@ def main():
         print("1. 添加监控目标")
         print("2. 删除监控目标")
         print("3. 退出")
-        
+
         choice = input("\n请选择操作 [1-3]: ")
-        
+
         if choice == '1':
             target_ip = input("请输入要添加的被控端IP地址 (例如: 192.168.1.1): ")
             if not validate_ip(target_ip):
                 print("错误: 请输入有效的IPv4地址格式 (例如: 192.168.1.1)")
                 input("按Enter键继续...")
                 continue
-            
+
             instance_name = input("请输入实例名称 (例如: HK-Alice): ")
             if not instance_name:
                 print("错误: 实例名称不能为空")
                 input("按Enter键继续...")
                 continue
-            
+
             code = input("请输入机场代码 (例如: HKG): ")
             if not code:
                 print("错误: 机场代码不能为空")
                 input("按Enter键继续...")
                 continue
-            
+
             city = input("请输入城市名称 (例如: Hong Kong): ")
             if not city:
                 print("错误: 城市名称不能为空")
                 input("按Enter键继续...")
                 continue
-            
+
             need_ipv6 = input("是否需要监听IPv6? (y/n): ").lower() == 'y'
             # 如果不需要监听IPv6，则添加过滤
             filter_ipv6 = not need_ipv6
             ipv6_address = None
-            
+
             # 如果需要监听IPv6
             if need_ipv6:
                 need_blackbox = input("是否要添加Blackbox Explorer配置? (y/n): ").lower() == 'y'
@@ -456,9 +465,21 @@ def main():
                         print("错误: 请输入有效的IPv6地址格式")
                         input("按Enter键继续...")
                         continue
-            
+
+            # 询问是否需要为blackbox_exporter配置basic auth
+            need_basic_auth = input("是否需要为blackbox_exporter配置Basic认证? (y/n): ").lower() == 'y'
+            basic_auth_username = None
+            basic_auth_password = None
+            if need_basic_auth:
+                basic_auth_username = input("请输入Basic认证用户名: ")
+                basic_auth_password = input("请输入Basic认证密码: ")
+                if not basic_auth_username or not basic_auth_password:
+                    print("错误: 用户名和密码不能为空")
+                    input("按Enter键继续...")
+                    continue
+
             config = load_config()
-            if add_target(config, target_ip, instance_name, code, city, filter_ipv6, ipv6_address):
+            if add_target(config, target_ip, instance_name, code, city, filter_ipv6, ipv6_address, basic_auth_username, basic_auth_password):
                 if save_config(config):
                     print(f"已成功添加IP为 {target_ip} 的目标。")
                     restart_prometheus()
@@ -466,16 +487,16 @@ def main():
                     print("添加目标到Prometheus配置失败。")
             else:
                 print(f"目标 {target_ip} 已经存在，未进行任何更改。")
-            
+
             input("按Enter键返回主菜单...")
-        
+
         elif choice == '2':
             target_ip = input("请输入要删除的被控端IP地址 (例如: 192.168.1.1): ")
             if not validate_ip(target_ip):
                 print("错误: 请输入有效的IP地址格式 (例如: 192.168.1.1)")
                 input("按Enter键继续...")
                 continue
-            
+
             config = load_config()
             if remove_target(config, target_ip):
                 if save_config(config):
@@ -485,13 +506,13 @@ def main():
                     print("删除目标失败，未能保存Prometheus配置文件。")
             else:
                 print(f"未找到IP为 {target_ip} 的目标，配置未修改。")
-            
+
             input("按Enter键返回主菜单...")
-        
+
         elif choice == '3':
             print("退出程序。")
             break
-        
+
         else:
             print("无效的选择，请重新输入。")
             input("按Enter键继续...")
