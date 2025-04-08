@@ -210,6 +210,36 @@ def remove_target(config, target_ip):
             new_scrape_configs.append(job)
             continue
 
+        # 处理blackbox_exporter job
+        if job_name == 'blackbox_exporter':
+            # 检查static_configs中是否包含目标IP
+            static_configs = job.get('static_configs', [])
+            new_static_configs = []
+
+            for static_config in static_configs:
+                targets = static_config.get('targets', [])
+                new_targets = []
+
+                for target in targets:
+                    if base_ip not in target:
+                        new_targets.append(target)
+                    else:
+                        changes_made = True
+                        print(f"已从 blackbox_exporter job 中移除IP为 {base_ip} 的目标")
+
+                if new_targets:
+                    static_config['targets'] = new_targets
+                    new_static_configs.append(static_config)
+
+            # 如果还有其他目标，保留这个job，否则删除
+            if new_static_configs:
+                job['static_configs'] = new_static_configs
+                new_scrape_configs.append(job)
+            else:
+                changes_made = True
+                print(f"已删除空的 blackbox_exporter job")
+            continue
+
         # 检查其他job的replacement字段
         relabel_configs = job.get('relabel_configs', [])
         should_remove = False
@@ -337,12 +367,38 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
         ]
     }
 
-    # 如果提供了Basic认证信息，添加到job配置中
+    # 3. 如果提供了Basic认证信息，添加一个新的job来监控blackbox_exporter的metrics端点
     if basic_auth_username and basic_auth_password:
-        new_job['basic_auth'] = {
-            'username': basic_auth_username,
-            'password': basic_auth_password
-        }
+        # 检查是否已存在blackbox_exporter的metrics job
+        blackbox_metrics_job_exists = False
+        for job in config.get('scrape_configs', []):
+            if job.get('job_name') == 'blackbox_exporter':
+                # 更新现有job的basic_auth配置
+                job['basic_auth'] = {
+                    'username': basic_auth_username,
+                    'password': basic_auth_password
+                }
+                blackbox_metrics_job_exists = True
+                break
+
+        # 如果不存在，创建新的job
+        if not blackbox_metrics_job_exists:
+            blackbox_metrics_job = {
+                'job_name': 'blackbox_exporter',
+                'metrics_path': '/metrics',
+                'static_configs': [{
+                    'targets': [f"{target_ip}:{port}"]
+                }],
+                'basic_auth': {
+                    'username': basic_auth_username,
+                    'password': basic_auth_password
+                }
+            }
+            config['scrape_configs'].append(blackbox_metrics_job)
+            print(f"已添加blackbox_exporter metrics端点的Basic认证配置")
+
+        # 在新job中添加basic_auth配置
+        # 注意：这里不需要添加，因为在检查已存在job时会添加
 
     # 如果需要过滤IPv6，添加过滤配置
     if filter_ipv6:
@@ -357,11 +413,25 @@ def add_target(config, target_ip, instance_name, code, city, filter_ipv6=False, 
     for job in config.get('scrape_configs', []):
         if job.get('job_name') == instance_name:
             exists = True
+            # 如果已存在且提供了Basic认证信息，更新认证配置
+            if basic_auth_username and basic_auth_password:
+                job['basic_auth'] = {
+                    'username': basic_auth_username,
+                    'password': basic_auth_password
+                }
+                print(f"已更新{instance_name}的Basic认证配置")
             break
 
     if not exists:
+        # 如果提供了Basic认证信息，添加到job配置中
+        if basic_auth_username and basic_auth_password:
+            new_job['basic_auth'] = {
+                'username': basic_auth_username,
+                'password': basic_auth_password
+            }
         config['scrape_configs'].append(new_job)
         changes_made = True
+        print(f"已添加{instance_name}格式的job")
 
     # 3. 添加到my_vps.yml
     vps_config = load_my_vps()
@@ -467,10 +537,11 @@ def main():
                         continue
 
             # 询问是否需要为blackbox_exporter配置basic auth
-            need_basic_auth = input("是否需要为blackbox_exporter配置Basic认证? (y/n): ").lower() == 'y'
+            print("提示: 建议为blackbox_exporter配置Basic认证以保护/metrics端点")
+            need_basic_auth = input("是否需要为blackbox_exporter配置Basic认证? (y/n) [建议选y]: ").lower()
             basic_auth_username = None
             basic_auth_password = None
-            if need_basic_auth:
+            if need_basic_auth == '' or need_basic_auth == 'y':
                 basic_auth_username = input("请输入Basic认证用户名: ")
                 basic_auth_password = input("请输入Basic认证密码: ")
                 if not basic_auth_username or not basic_auth_password:
